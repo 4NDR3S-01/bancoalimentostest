@@ -589,13 +589,49 @@ export const createSolicitudesActionService = (supabaseClient: SupabaseClient) =
       return `Tu solicitud de ${solicitud.tipo_alimento} fue rechazada.`;
     })();
 
+    // Preparar datos contextuales para plantilla especializada
+    const numeroReferencia = `SOL-${new Date().getFullYear()}-${String(solicitud.id).padStart(6, '0')}`;
+    const fechaActual = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+    
+    const templateData = nuevoEstado === 'aprobada' ? {
+      nombreSolicitante: solicitud.usuarios?.nombre ?? 'Solicitante',
+      numeroReferencia,
+      tipoAlimento: solicitud.tipo_alimento,
+      cantidad: solicitud.cantidad,
+      unidad: solicitud.unidades?.simbolo ?? 'unidades',
+      cedulaSolicitante: solicitud.usuarios?.cedula,
+      direccionEntrega: solicitud.usuarios?.direccion ?? 'Por confirmar',
+      fechaAprobacion: fechaActual,
+      fechaEstimadaEntrega: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toLocaleDateString('es-ES', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      }),
+      comentarioAdmin: comentarioAdmin && comentarioAdmin.trim() ? comentarioAdmin.trim() : undefined,
+      nombreOperador: 'Sistema Banco de Alimentos',
+      correoContacto: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'soporte@bancoalimentos.app',
+      telefonoContacto: process.env.NEXT_PUBLIC_SUPPORT_PHONE || '(+593) 2 xxxxx',
+    } : {
+      nombreSolicitante: solicitud.usuarios?.nombre ?? 'Solicitante',
+      numeroReferencia,
+      tipoAlimento: solicitud.tipo_alimento,
+      cantidad: solicitud.cantidad,
+      unidad: solicitud.unidades?.simbolo ?? 'unidades',
+      fechaRechazo: fechaActual,
+      motivoRechazo: comentarioAdmin && comentarioAdmin.trim() ? comentarioAdmin.trim() : 'No especificado',
+      comentarioAdmin: comentarioAdmin && comentarioAdmin.trim() ? comentarioAdmin.trim() : undefined,
+      correoContacto: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'soporte@bancoalimentos.app',
+      telefonoContacto: process.env.NEXT_PUBLIC_SUPPORT_PHONE || '(+593) 2 xxxxx',
+    };
+
     await sendNotification({
       titulo,
       mensaje,
-      categoria: 'solicitud',
+      categoria: nuevoEstado === 'aprobada' ? 'solicitud_aprobada' : 'solicitud_rechazada',
       tipo: nuevoEstado === 'aprobada' ? 'success' : 'warning',
       destinatarioId: solicitud.usuario_id,
       urlAccion: '/user/solicitudes',
+      templateData,
       metadatos: {
         solicitudId: solicitud.id,
         nuevoEstado,

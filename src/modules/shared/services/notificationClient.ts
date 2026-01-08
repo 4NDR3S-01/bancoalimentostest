@@ -9,6 +9,7 @@ type NotificationPayload = {
   metadatos?: Record<string, unknown>;
   expiraEn?: string;
   enviarEmail?: boolean;
+  templateData?: Record<string, unknown>;
 };
 
 export async function sendNotification(payload: NotificationPayload) {

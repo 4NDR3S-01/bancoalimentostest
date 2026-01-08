@@ -3,6 +3,15 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { sendEmail, EmailOptions } from '@/lib/email';
 import { buildNotificationEmailTemplate } from '@/lib/email/templates/notificationEmail';
+import { buildSolicitudAprobadaEmailTemplate } from '@/lib/email/templates/solicitudAprobadaEmail';
+import { buildSolicitudRechazadaEmailTemplate } from '@/lib/email/templates/solicitudRechazadaEmail';
+import { buildDonacionAprobadaEmailTemplate } from '@/lib/email/templates/donacionAprobadaEmail';
+import { buildDonacionCanceladaEmailTemplate } from '@/lib/email/templates/donacionCanceladaEmail';
+import { buildNuevaSolicitudEmailTemplate } from '@/lib/email/templates/nuevaSolicitudEmail';
+import { buildNuevaDonacionEmailTemplate } from '@/lib/email/templates/nuevaDonacionEmail';
+import { buildBienvenidaEmailTemplate } from '@/lib/email/templates/bienvenidaEmail';
+import { buildCambioRolEmailTemplate } from '@/lib/email/templates/cambioRolEmail';
+import { buildInventarioBajoEmailTemplate } from '@/lib/email/templates/inventarioBajoEmail';
 
 type NotificationType = 'info' | 'success' | 'warning' | 'error';
 
@@ -21,6 +30,8 @@ export interface CreateNotificationInput {
     EmailOptions,
     'to' | 'subject' | 'html' | 'text' | 'from' | 'cc' | 'bcc' | 'replyTo' | 'attachments' | 'headers'
   >;
+  // Datos especializados para plantillas específicas
+  templateData?: Record<string, unknown>;
 }
 
 export interface NotificacionRecord {
@@ -103,13 +114,118 @@ export class NotificationService {
       }
 
       const envios = destinatarios.map((destinatario) => {
-        const plantilla = buildNotificationEmailTemplate({
-          titulo: notificacion.titulo,
-          mensaje: notificacion.mensaje,
-          categoria,
-          urlAccion: notificacion.url_accion,
-          destinatarioNombre: destinatario.nombre ?? null,
-        });
+        // Detectar categoría especializada y usar plantilla correspondiente
+        let plantilla;
+
+        if (categoria === 'solicitud_aprobada' && input.templateData) {
+          plantilla = buildSolicitudAprobadaEmailTemplate({
+            nombreSolicitante: String(input.templateData.nombreSolicitante || ''),
+            numeroReferencia: String(input.templateData.numeroReferencia || ''),
+            tipoAlimento: String(input.templateData.tipoAlimento || ''),
+            cantidad: Number(input.templateData.cantidad || 0),
+            unidad: String(input.templateData.unidad || ''),
+            cedulaSolicitante: input.templateData.cedulaSolicitante as string | undefined,
+            direccionEntrega: String(input.templateData.direccionEntrega || ''),
+            fechaAprobacion: String(input.templateData.fechaAprobacion || new Date().toLocaleDateString('es-ES')),
+            fechaEstimadaEntrega: input.templateData.fechaEstimadaEntrega as string | undefined,
+            comentarioAdmin: input.templateData.comentarioAdmin as string | undefined,
+            nombreOperador: input.templateData.nombreOperador as string | undefined,
+            correoContacto: input.templateData.correoContacto as string | undefined,
+            telefonoContacto: input.templateData.telefonoContacto as string | undefined,
+          });
+        } else if (categoria === 'solicitud_rechazada' && input.templateData) {
+          plantilla = buildSolicitudRechazadaEmailTemplate({
+            nombreSolicitante: String(input.templateData.nombreSolicitante || ''),
+            numeroReferencia: String(input.templateData.numeroReferencia || ''),
+            tipoAlimento: String(input.templateData.tipoAlimento || ''),
+            cantidad: Number(input.templateData.cantidad || 0),
+            unidad: String(input.templateData.unidad || ''),
+            fechaRechazo: String(input.templateData.fechaRechazo || new Date().toLocaleDateString('es-ES')),
+            motivoRechazo: input.templateData.motivoRechazo as string | undefined,
+            comentarioAdmin: input.templateData.comentarioAdmin as string | undefined,
+            correoContacto: input.templateData.correoContacto as string | undefined,
+            telefonoContacto: input.templateData.telefonoContacto as string | undefined,
+          });
+        } else if (categoria === 'donacion_aprobada' && input.templateData) {
+          plantilla = buildDonacionAprobadaEmailTemplate({
+            nombreDonante: String(input.templateData.nombreDonante || ''),
+            numeroReferencia: String(input.templateData.numeroReferencia || ''),
+            tipoProducto: String(input.templateData.tipoProducto || ''),
+            cantidad: Number(input.templateData.cantidad || 0),
+            unidad: String(input.templateData.unidad || ''),
+            cedulaRuc: input.templateData.cedulaRuc as string | undefined,
+            direccionDonante: String(input.templateData.direccionDonante || ''),
+            direccionEntrega: String(input.templateData.direccionEntrega || ''),
+            horarioPreferido: input.templateData.horarioPreferido as string | undefined,
+            fechaAprobacion: String(input.templateData.fechaAprobacion || new Date().toLocaleDateString('es-ES')),
+            fechaEstimadaRecogida: input.templateData.fechaEstimadaRecogida as string | undefined,
+            observaciones: input.templateData.observaciones as string | undefined,
+            impactoEstimado: input.templateData.impactoEstimado as string | undefined,
+            nombreLogistica: input.templateData.nombreLogistica as string | undefined,
+            correoContacto: input.templateData.correoContacto as string | undefined,
+            telefonoContacto: input.templateData.telefonoContacto as string | undefined,
+          });
+        } else if (categoria === 'donacion_cancelada' && input.templateData) {
+          plantilla = buildDonacionCanceladaEmailTemplate({
+            nombreDonante: String(input.templateData.nombreDonante || ''),
+            numeroReferencia: String(input.templateData.numeroReferencia || ''),
+            tipoProducto: String(input.templateData.tipoProducto || ''),
+            cantidad: Number(input.templateData.cantidad || 0),
+            unidad: String(input.templateData.unidad || ''),
+            fechaCancelacion: String(input.templateData.fechaCancelacion || new Date().toLocaleDateString('es-ES')),
+            motivoCancelacion: input.templateData.motivoCancelacion as string | undefined,
+            correoContacto: input.templateData.correoContacto as string | undefined,
+            telefonoContacto: input.templateData.telefonoContacto as string | undefined,
+          });
+        } else if (categoria === 'nueva_solicitud' && input.templateData) {
+          plantilla = buildNuevaSolicitudEmailTemplate({
+            nombreSolicitante: String(input.templateData.nombreSolicitante || ''),
+            numeroReferencia: String(input.templateData.numeroReferencia || ''),
+            tipoAlimento: String(input.templateData.tipoAlimento || ''),
+            cantidad: Number(input.templateData.cantidad || 0),
+            unidad: String(input.templateData.unidad || ''),
+            fechaSolicitud: String(input.templateData.fechaSolicitud || new Date().toLocaleDateString('es-ES')),
+          });
+        } else if (categoria === 'nueva_donacion' && input.templateData) {
+          plantilla = buildNuevaDonacionEmailTemplate({
+            nombreDonante: String(input.templateData.nombreDonante || ''),
+            numeroReferencia: String(input.templateData.numeroReferencia || ''),
+            tipoProducto: String(input.templateData.tipoProducto || ''),
+            cantidad: Number(input.templateData.cantidad || 0),
+            unidad: String(input.templateData.unidad || ''),
+            fechaDonacion: String(input.templateData.fechaDonacion || new Date().toLocaleDateString('es-ES')),
+            impactoEstimado: input.templateData.impactoEstimado as string | undefined,
+          });
+        } else if (categoria === 'bienvenida' && input.templateData) {
+          plantilla = buildBienvenidaEmailTemplate({
+            nombreUsuario: String(input.templateData.nombreUsuario || ''),
+            rol: String(input.templateData.rol || ''),
+            email: String(input.templateData.email || ''),
+            urlPlataforma: input.templateData.urlPlataforma as string | undefined,
+          });
+        } else if (categoria === 'cambio_rol' && input.templateData) {
+          plantilla = buildCambioRolEmailTemplate({
+            nombreUsuario: String(input.templateData.nombreUsuario || ''),
+            rolAnterior: String(input.templateData.rolAnterior || ''),
+            rolNuevo: String(input.templateData.rolNuevo || ''),
+            fechaCambio: String(input.templateData.fechaCambio || new Date().toLocaleDateString('es-ES')),
+          });
+        } else if (categoria === 'inventario_bajo' && input.templateData) {
+          plantilla = buildInventarioBajoEmailTemplate({
+            nombreOperador: String(input.templateData.nombreOperador || 'Operador'),
+            productos: (input.templateData.productos as any[]) || [],
+            fechaAlerta: String(input.templateData.fechaAlerta || new Date().toLocaleDateString('es-ES')),
+          });
+        } else {
+          // Usar plantilla genérica por defecto
+          plantilla = buildNotificationEmailTemplate({
+            titulo: notificacion.titulo,
+            mensaje: notificacion.mensaje,
+            categoria,
+            urlAccion: notificacion.url_accion,
+            destinatarioNombre: destinatario.nombre ?? null,
+          });
+        }
 
         const emailOptions: EmailOptions = {
           to: destinatario.email,

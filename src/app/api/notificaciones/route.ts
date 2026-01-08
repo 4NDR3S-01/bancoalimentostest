@@ -58,6 +58,7 @@ export async function POST(request: Request) {
       expiraEn: body.expiraEn ?? body.expira_en,
       enviarEmail: body.enviarEmail,
       email: body.email,
+      templateData: body.templateData,
     });
 
     return NextResponse.json({ notificacion });

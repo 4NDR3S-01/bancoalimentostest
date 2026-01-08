@@ -242,10 +242,58 @@ export const createDonationActionService = (supabaseClient: SupabaseClient) => {
         }
       })();
 
+      const numeroReferencia = `DON-${new Date().getFullYear()}-${String(donation.id).padStart(6, '0')}`;
+      const fechaActual = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+
+      // Preparar datos contextuales para plantillas especializadas
+      let templateData = undefined;
+      let categoria = 'donacion';
+
+      if (nuevoEstado === 'Recogida') {
+        categoria = 'donacion_aprobada';
+        templateData = {
+          nombreDonante: donation.nombre_donante ?? 'Donante',
+          numeroReferencia,
+          tipoProducto: donation.tipo_producto,
+          cantidad: donation.cantidad,
+          unidad: donation.unidad_simbolo ?? 'unidades',
+          cedulaRuc: donation.cedula_donante || donation.ruc_donante,
+          direccionDonante: donation.direccion_donante_completa ?? 'Por confirmar',
+          direccionEntrega: donation.direccion_entrega ?? 'Banco de Alimentos Central',
+          horarioPreferido: donation.horario_preferido,
+          fechaAprobacion: fechaActual,
+          fechaEstimadaRecogida: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString('es-ES', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          }),
+          observaciones: donation.observaciones,
+          impactoEstimado: donation.impacto_estimado_personas 
+            ? `Beneficiará aproximadamente a ${donation.impacto_estimado_personas} personas`
+            : undefined,
+          nombreLogistica: 'Equipo de Logística Banco de Alimentos',
+          correoContacto: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'soporte@bancoalimentos.app',
+          telefonoContacto: process.env.NEXT_PUBLIC_SUPPORT_PHONE || '(+593) 2 xxxxx',
+        };
+      } else if (nuevoEstado === 'Cancelada') {
+        categoria = 'donacion_cancelada';
+        templateData = {
+          nombreDonante: donation.nombre_donante ?? 'Donante',
+          numeroReferencia,
+          tipoProducto: donation.tipo_producto,
+          cantidad: donation.cantidad,
+          unidad: donation.unidad_simbolo ?? 'unidades',
+          fechaCancelacion: fechaActual,
+          motivoCancelacion: donation.observaciones || 'No especificado',
+          correoContacto: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'soporte@bancoalimentos.app',
+          telefonoContacto: process.env.NEXT_PUBLIC_SUPPORT_PHONE || '(+593) 2 xxxxx',
+        };
+      }
+
       await sendNotification({
         titulo,
         mensaje,
-        categoria: 'donacion',
+        categoria,
         tipo:
           nuevoEstado === 'Cancelada'
             ? 'warning'
@@ -254,6 +302,7 @@ export const createDonationActionService = (supabaseClient: SupabaseClient) => {
               : 'info',
         destinatarioId: donation.user_id ?? undefined,
         urlAccion: '/donante/donaciones',
+        templateData,
         metadatos: {
           donacionId: donation.id,
           nuevoEstado,
