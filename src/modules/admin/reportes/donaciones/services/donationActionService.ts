@@ -103,44 +103,6 @@ export const createDonationActionService = (supabaseClient: SupabaseClient) => {
     return processPromise;
   };
 
-  const notificarCambioEstadoDonacion = async (donation: Donation, nuevoEstado: DonationEstado) => {
-    try {
-      const titulo = `Estado de tu donación: ${nuevoEstado}`;
-      const mensaje = (() => {
-        switch (nuevoEstado) {
-          case 'Recogida':
-            return `Tu donación de ${donation.tipo_producto} ha sido recogida por nuestro equipo.`;
-          case 'Entregada':
-            return `Gracias por tu aporte. La donación de ${donation.tipo_producto} ha sido entregada y registrada en el inventario.`;
-          case 'Cancelada':
-            return 'Tu donación fue cancelada. Si fue un error, contáctanos para coordinar nuevamente.';
-          default:
-            return `El estado de tu donación de ${donation.tipo_producto} ahora es ${nuevoEstado}.`;
-        }
-      })();
-
-      await sendNotification({
-        titulo,
-        mensaje,
-        categoria: 'donacion',
-        tipo:
-          nuevoEstado === 'Cancelada'
-            ? 'warning'
-            : nuevoEstado === 'Entregada'
-              ? 'success'
-              : 'info',
-        destinatarioId: donation.user_id ?? undefined,
-        urlAccion: '/donante/donaciones',
-        metadatos: {
-          donacionId: donation.id,
-          nuevoEstado,
-        },
-      });
-    } catch (error) {
-      logger.error('Error enviando notificación de donación', error);
-    }
-  };
-
   /* =====================================================
    * FUNCIONES DESACTIVADAS - AHORA LAS MANEJA EL TRIGGER DE BD
    * =====================================================
@@ -153,49 +115,7 @@ export const createDonationActionService = (supabaseClient: SupabaseClient) => {
    * Estas funciones se mantienen comentadas por si se necesitan en el futuro
    * ===================================================== */
 
-  /* DESACTIVADO - El trigger de BD maneja esto automáticamente  const integrateWithInventory = async (donation: Donation): Promise<DonationInventoryIntegrationResult> => {
-    try {
-      const startTime = Date.now();
-      logger.info('🚀 Iniciando integración con inventario', { 
-        donationId: donation.id, 
-        tipoProducto: donation.tipo_producto,
-        cantidad: donation.cantidad,
-        timestamp: new Date().toISOString()
-      });
-      
-      const productoId = await obtenerOCrearProducto(donation);
-      logger.info('✅ Producto obtenido/creado', { productoId, elapsed: `${Date.now() - startTime}ms` });
-      
-      const depositoId = await obtenerOCrearDeposito();
-      logger.info('✅ Depósito obtenido/creado', { depositoId, elapsed: `${Date.now() - startTime}ms` });
-      
-      await actualizarInventario(productoId, depositoId, donation);
-      logger.info('✅ Inventario actualizado exitosamente', { 
-        productoId, 
-        depositoId, 
-        cantidad: donation.cantidad,
-        elapsed: `${Date.now() - startTime}ms`,
-        completedAt: new Date().toISOString()
-      });
-
-      return { productoId, depositoId };
-    } catch (error) {
-      logger.error('Error integrando donación con inventario', error);
-      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
-      logger.error('Detalle del error de integración:', { 
-        errorMessage, 
-        donationId: donation.id,
-        tipoProducto: donation.tipo_producto,
-        cantidad: donation.cantidad
-      });
-      return {
-        error: SYSTEM_MESSAGES.integrationWarning,
-        productoId: undefined,
-        depositoId: undefined
-      };
-    }
-  };
-
+  /*
   const obtenerOCrearProducto = async (donation: Donation): Promise<number> => {
     try {
       // BÚSQUEDA MÁS ROBUSTA: Por nombre de producto y unidad_id (más confiable que símbolo)
