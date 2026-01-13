@@ -90,6 +90,13 @@ export default function SolicitudesPage() {
   }, [resetInventario]);
 
   const handleEstadoChange = useCallback(async (solicitud: Solicitud, estado: 'aprobada' | 'rechazada', comentario?: string) => {
+    // Si se va a aprobar, verificar stock disponible primero
+    if (estado === 'aprobada') {
+      await loadInventario(solicitud.tipo_alimento);
+      // Esperar un momento para que se cargue el inventario
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
     const prompts: Record<'aprobada' | 'rechazada', {
       title: string;
       description: string;
@@ -121,6 +128,7 @@ export default function SolicitudesPage() {
     });
 
     if (!confirmed) {
+      resetInventario();
       return false;
     }
 
@@ -128,6 +136,7 @@ export default function SolicitudesPage() {
 
     if (!result.success) {
       showError(result.message);
+      resetInventario();
       return false;
     }
 
@@ -137,9 +146,10 @@ export default function SolicitudesPage() {
       showSuccess(result.message);
     }
 
+    resetInventario();
     await refetch();
     return true;
-  }, [updateEstado, refetch, showError, showSuccess, showWarning, confirm]);
+  }, [updateEstado, refetch, showError, showSuccess, showWarning, confirm, loadInventario, resetInventario]);
 
   const handleOpenModal = useCallback((solicitud: Solicitud) => {
     setSolicitudSeleccionada(solicitud);
@@ -171,6 +181,30 @@ export default function SolicitudesPage() {
     showSuccess(result.message);
     await refetch();
   }, [revertir, refetch, showError, showSuccess, confirm]);
+
+  const handleMarcarEntregada = useCallback(async (solicitud: Solicitud) => {
+    const confirmed = await confirm({
+      title: `Marcar como entregada`,
+      description: `¿Estás seguro de marcar esta solicitud como entregada? Esta acción NO se puede revertir.`,
+      confirmLabel: 'Marcar como entregada',
+      cancelLabel: 'Cancelar',
+      variant: 'warning'
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    const result = await updateEstado(solicitud, 'entregada');
+
+    if (!result.success) {
+      showError(result.message);
+      return;
+    }
+
+    showSuccess('Solicitud marcada como entregada exitosamente');
+    await refetch();
+  }, [updateEstado, refetch, showError, showSuccess, confirm]);
 
   const handleModalAprobar = useCallback(async () => {
     if (!solicitudSeleccionada) return;
@@ -213,6 +247,7 @@ export default function SolicitudesPage() {
         onVerDetalle={handleOpenModal}
         onActualizarEstado={(solicitud, estado) => handleEstadoChange(solicitud, estado)}
         onRevertir={handleRevertir}
+        onMarcarEntregada={handleMarcarEntregada}
         estadoIcons={estadoIcons}
         badgeStyles={badgeStyles}
         formatDate={formatDateTime}
@@ -230,6 +265,7 @@ export default function SolicitudesPage() {
     handleOpenModal,
     handleEstadoChange,
     handleRevertir,
+    handleMarcarEntregada,
     estadoIcons,
     badgeStyles,
     processingId,

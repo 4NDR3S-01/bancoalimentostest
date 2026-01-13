@@ -28,11 +28,26 @@ const logger = {
 
 const NO_ROWS_CODE = 'PGRST116';
 
+// Cache para prevenir procesamiento simultáneo de la misma donación
+const processingCache = new Map<number, Promise<ServiceResult<{ message: string; warning?: boolean }>>>();
+
 export const createDonationActionService = (supabaseClient: SupabaseClient) => {
   const updateDonationEstado = async (
     donation: Donation,
     nuevoEstado: DonationEstado
   ): Promise<ServiceResult<{ message: string; warning?: boolean }>> => {
+    // Prevenir procesamiento duplicado de la misma donación
+    const cacheKey = donation.id;
+    
+    if (processingCache.has(cacheKey)) {
+      logger.warn('⚠️ Intento de procesamiento duplicado detectado y bloqueado', { 
+        donacionId: donation.id, 
+        estado: nuevoEstado 
+      });
+      return processingCache.get(cacheKey)!;
+    }
+    
+    const processPromise = (async () => {
     try {
       const { error } = await supabaseClient
         .from('donaciones')
@@ -51,49 +66,16 @@ export const createDonationActionService = (supabaseClient: SupabaseClient) => {
         };
       }
 
-      // Integrar con inventario cuando la donación pasa a estado "Entregada"
+      // NOTA: El trigger de BD (trigger_crear_producto) se encarga automáticamente
+      // de agregar la donación al inventario cuando el estado cambia a "Entregada"
+      // No necesitamos hacerlo manualmente aquí (esto previene duplicaciones)
+      
       if (nuevoEstado === 'Entregada') {
-        logger.info('Procesando integración con inventario', { 
+        logger.info('✅ Donación marcada como Entregada - El trigger de BD actualizará el inventario automáticamente', { 
           donationId: donation.id, 
           estadoAnterior: donation.estado, 
           estadoNuevo: nuevoEstado 
         });
-        
-        const integration = await integrateWithInventory(donation);
-        
-        if (integration.error) {
-          logger.error('Error en integración con inventario', integration.error);
-          return {
-            success: true,
-            data: {
-              message: `${SYSTEM_MESSAGES.stateUpdateSuccess(nuevoEstado)} pero hubo un error al actualizar el inventario: ${integration.error}`,
-              warning: true
-            }
-          };
-        }
-
-        logger.info('Integración exitosa, registrando movimiento', { productoId: integration.productoId });
-        
-        const movementResult = await registerDonationMovement(donation, integration.productoId!);
-        if (!movementResult.success) {
-          logger.warn('Estado actualizado pero el movimiento no pudo registrarse', movementResult.errorDetails);
-          return {
-            success: true,
-            data: {
-              message: `${SYSTEM_MESSAGES.stateUpdateSuccess(nuevoEstado)} y agregada al inventario (sin registro de movimiento).`,
-              warning: true
-            }
-          };
-        }
-
-        logger.info('Donación procesada completamente: inventario y movimiento registrados');
-        await notificarCambioEstadoDonacion(donation, nuevoEstado);
-        return {
-          success: true,
-          data: {
-            message: `${SYSTEM_MESSAGES.stateUpdateSuccess(nuevoEstado)} y agregada al inventario exitosamente.`
-          }
-        };
       }
 
       await notificarCambioEstadoDonacion(donation, nuevoEstado);
@@ -111,21 +93,90 @@ export const createDonationActionService = (supabaseClient: SupabaseClient) => {
         error: 'Error inesperado al actualizar la donación',
         errorDetails: error
       };
+    } finally {
+      // Limpiar cache después de 2 segundos para permitir reintentos
+      setTimeout(() => processingCache.delete(cacheKey), 2000);
+    }
+    })();
+    
+    processingCache.set(cacheKey, processPromise);
+    return processPromise;
+  };
+
+  const notificarCambioEstadoDonacion = async (donation: Donation, nuevoEstado: DonationEstado) => {
+    try {
+      const titulo = `Estado de tu donación: ${nuevoEstado}`;
+      const mensaje = (() => {
+        switch (nuevoEstado) {
+          case 'Recogida':
+            return `Tu donación de ${donation.tipo_producto} ha sido recogida por nuestro equipo.`;
+          case 'Entregada':
+            return `Gracias por tu aporte. La donación de ${donation.tipo_producto} ha sido entregada y registrada en el inventario.`;
+          case 'Cancelada':
+            return 'Tu donación fue cancelada. Si fue un error, contáctanos para coordinar nuevamente.';
+          default:
+            return `El estado de tu donación de ${donation.tipo_producto} ahora es ${nuevoEstado}.`;
+        }
+      })();
+
+      await sendNotification({
+        titulo,
+        mensaje,
+        categoria: 'donacion',
+        tipo:
+          nuevoEstado === 'Cancelada'
+            ? 'warning'
+            : nuevoEstado === 'Entregada'
+              ? 'success'
+              : 'info',
+        destinatarioId: donation.user_id ?? undefined,
+        urlAccion: '/donante/donaciones',
+        metadatos: {
+          donacionId: donation.id,
+          nuevoEstado,
+        },
+      });
+    } catch (error) {
+      logger.error('Error enviando notificación de donación', error);
     }
   };
 
-  const integrateWithInventory = async (donation: Donation): Promise<DonationInventoryIntegrationResult> => {
+  /* =====================================================
+   * FUNCIONES DESACTIVADAS - AHORA LAS MANEJA EL TRIGGER DE BD
+   * =====================================================
+   * El trigger "trigger_crear_producto" en la base de datos
+   * se encarga automáticamente de:
+   * 1. Crear/actualizar productos donados
+   * 2. Actualizar el inventario
+   * 3. Garantizar integridad transaccional
+   * 
+   * Estas funciones se mantienen comentadas por si se necesitan en el futuro
+   * ===================================================== */
+
+  /* DESACTIVADO - El trigger de BD maneja esto automáticamente  const integrateWithInventory = async (donation: Donation): Promise<DonationInventoryIntegrationResult> => {
     try {
-      logger.info('Iniciando integración con inventario', { donationId: donation.id, tipoProducto: donation.tipo_producto });
+      const startTime = Date.now();
+      logger.info('🚀 Iniciando integración con inventario', { 
+        donationId: donation.id, 
+        tipoProducto: donation.tipo_producto,
+        cantidad: donation.cantidad,
+        timestamp: new Date().toISOString()
+      });
       
       const productoId = await obtenerOCrearProducto(donation);
-      logger.info('Producto obtenido/creado', { productoId });
+      logger.info('✅ Producto obtenido/creado', { productoId, elapsed: `${Date.now() - startTime}ms` });
       
       const depositoId = await obtenerOCrearDeposito();
-      logger.info('Depósito obtenido/creado', { depositoId });
+      logger.info('✅ Depósito obtenido/creado', { depositoId, elapsed: `${Date.now() - startTime}ms` });
       
       await actualizarInventario(productoId, depositoId, donation);
-      logger.info('Inventario actualizado exitosamente', { productoId, depositoId, cantidad: donation.cantidad });
+      logger.info('✅ Inventario actualizado exitosamente', { 
+        productoId, 
+        depositoId, 
+        cantidad: donation.cantidad,
+        elapsed: `${Date.now() - startTime}ms`,
+        completedAt: new Date().toISOString()
+      });
 
       return { productoId, depositoId };
     } catch (error) {
@@ -225,6 +276,7 @@ export const createDonationActionService = (supabaseClient: SupabaseClient) => {
       throw new Error('Error desconocido al obtener o crear producto');
     }
   };
+  */
 
   const notificarCambioEstadoDonacion = async (donation: Donation, nuevoEstado: DonationEstado) => {
     try {
@@ -313,6 +365,7 @@ export const createDonationActionService = (supabaseClient: SupabaseClient) => {
     }
   };
 
+  /* DESACTIVADO - El trigger de BD maneja esto automáticamente
   const obtenerOCrearDeposito = async (): Promise<string> => {
     try {
       const { data: depositoPrincipal, error } = await supabaseClient
@@ -355,6 +408,13 @@ export const createDonationActionService = (supabaseClient: SupabaseClient) => {
 
   const actualizarInventario = async (productoId: number, depositoId: string, donation: Donation) => {
     try {
+      logger.info('🔍 Buscando inventario existente', { 
+        productoId, 
+        depositoId,
+        donacionId: donation.id,
+        cantidad: donation.cantidad
+      });
+      
       const { data: existingInventory, error: inventoryError } = await supabaseClient
         .from('inventario')
         .select('id_inventario, cantidad_disponible')
@@ -368,7 +428,17 @@ export const createDonationActionService = (supabaseClient: SupabaseClient) => {
       }
 
       if (existingInventory) {
-        const nuevaCantidad = (existingInventory.cantidad_disponible ?? 0) + donation.cantidad;
+        const cantidadAnterior = existingInventory.cantidad_disponible ?? 0;
+        const nuevaCantidad = cantidadAnterior + donation.cantidad;
+        
+        logger.info('📦 Actualizando inventario existente', {
+          inventarioId: existingInventory.id_inventario,
+          cantidadAnterior,
+          cantidadAgregar: donation.cantidad,
+          nuevaCantidad,
+          producto: donation.tipo_producto
+        });
+        
         const { error: updateError } = await supabaseClient
           .from('inventario')
           .update({
@@ -385,6 +455,13 @@ export const createDonationActionService = (supabaseClient: SupabaseClient) => {
         logger.info(SYSTEM_MESSAGES.inventoryIncrement(donation.cantidad, donation.unidad_simbolo, donation.tipo_producto));
         return;
       }
+      
+      logger.info('➕ Creando nuevo registro de inventario', { 
+        productoId, 
+        depositoId,
+        cantidad: donation.cantidad,
+        producto: donation.tipo_producto
+      });
 
       const { error: insertError } = await supabaseClient
         .from('inventario')
@@ -422,7 +499,9 @@ export const createDonationActionService = (supabaseClient: SupabaseClient) => {
       throw new Error('Error desconocido al actualizar inventario');
     }
   };
+  */
 
+  /* DESACTIVADO - El trigger de BD maneja esto automáticamente
   const registerDonationMovement = async (donation: Donation, productoId: number): Promise<ServiceResult<void>> => {
     try {
       const { data: authData, error: authError } = await supabaseClient.auth.getUser();
@@ -483,6 +562,7 @@ export const createDonationActionService = (supabaseClient: SupabaseClient) => {
       };
     }
   };
+  */
 
   return {
     updateDonationEstado

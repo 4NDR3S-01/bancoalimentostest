@@ -92,6 +92,13 @@ export default function OperadorSolicitudesPage() {
   }, [resetInventario]);
 
   const handleEstadoChange = useCallback(async (solicitud: Solicitud, estado: 'aprobada' | 'rechazada', comentario?: string) => {
+    // Si se va a aprobar, verificar stock disponible primero
+    if (estado === 'aprobada') {
+      await loadInventario(solicitud.tipo_alimento);
+      // Esperar un momento para que se cargue el inventario
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
     const prompts: Record<'aprobada' | 'rechazada', {
       title: string;
       description: string;
@@ -123,6 +130,7 @@ export default function OperadorSolicitudesPage() {
     });
 
     if (!confirmed) {
+      resetInventario();
       return false;
     }
 
@@ -130,6 +138,7 @@ export default function OperadorSolicitudesPage() {
 
     if (!result.success) {
       showError(result.message);
+      resetInventario();
       return false;
     }
 
@@ -139,9 +148,34 @@ export default function OperadorSolicitudesPage() {
       showSuccess(result.message);
     }
 
+    resetInventario();
     await refetch();
     return true;
-  }, [updateEstado, refetch, showError, showSuccess, showWarning, confirm]);
+  }, [updateEstado, refetch, showError, showSuccess, showWarning, confirm, loadInventario, resetInventario]);
+
+  const handleMarcarEntregada = useCallback(async (solicitud: Solicitud) => {
+    const confirmed = await confirm({
+      title: `Marcar como entregada`,
+      description: `¿Estás seguro de marcar esta solicitud como entregada? Esta acción NO se puede revertir.`,
+      confirmLabel: 'Marcar como entregada',
+      cancelLabel: 'Cancelar',
+      variant: 'warning'
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    const result = await updateEstado(solicitud, 'entregada');
+
+    if (!result.success) {
+      showError(result.message);
+      return;
+    }
+
+    showSuccess('Solicitud marcada como entregada exitosamente');
+    await refetch();
+  }, [updateEstado, refetch, showError, showSuccess, confirm]);
 
   const handleOpenModal = useCallback((solicitud: Solicitud) => {
     setSolicitudSeleccionada(solicitud);
@@ -190,6 +224,7 @@ export default function OperadorSolicitudesPage() {
         totalSolicitudes={totalSolicitudes}
         onVerDetalle={handleOpenModal}
         onActualizarEstado={(solicitud, estado) => handleEstadoChange(solicitud, estado)}
+        onMarcarEntregada={handleMarcarEntregada}
         estadoIcons={estadoIcons}
         badgeStyles={badgeStyles}
         formatDate={formatDateTime}
@@ -206,6 +241,7 @@ export default function OperadorSolicitudesPage() {
     totalSolicitudes,
     handleOpenModal,
     handleEstadoChange,
+    handleMarcarEntregada,
     estadoIcons,
     badgeStyles,
     processingId,
